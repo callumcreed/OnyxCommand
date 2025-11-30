@@ -56,6 +56,9 @@ if (!defined('ABSPATH')) {
             <button class="button button-secondary button-hero oc-clear-cache">
                 <?php _e('Clear All Caches', 'onyx-command'); ?>
             </button>
+            <button class="button button-secondary button-hero oc-full-cleanup" data-confirm="<?php esc_attr_e('This will remove all Onyx Command data and reset WordPress to its native state. Continue?', 'onyx-command'); ?>">
+                <?php _e('Clean Up & Reset', 'onyx-command'); ?>
+            </button>
             <a href="<?php echo admin_url('admin.php?page=onyx-command-optimizer'); ?>" class="button button-secondary button-hero">
                 <?php _e('Optimize Site', 'onyx-command'); ?>
             </a>

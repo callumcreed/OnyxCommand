@@ -1,0 +1,42 @@
+.oc-media-tools-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: 10px;
+}
+
+.oc-media-progress {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    min-width: 220px;
+}
+
+.oc-media-progress[aria-hidden="false"] {
+    display: inline-flex;
+}
+
+.oc-media-progress-bar {
+    position: relative;
+    flex: 1;
+    height: 6px;
+    border-radius: 999px;
+    background: #dcd7ca;
+    overflow: hidden;
+}
+
+.oc-media-progress-fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 0%;
+    height: 100%;
+    background: linear-gradient(90deg, #22c55e, #16a34a);
+    transition: width 0.25s ease;
+}
+
+.oc-media-progress-text {
+    font-size: 12px;
+    color: #1d2327;
+}
+

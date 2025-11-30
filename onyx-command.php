@@ -312,6 +312,107 @@ function onyx_command_set_uninstall_preference() {
 }
 add_action('wp_ajax_oc_set_uninstall_preference', 'onyx_command_set_uninstall_preference');
 
+add_action('wp_ajax_oc_full_cleanup', 'onyx_command_ajax_full_cleanup');
+
+/**
+ * AJAX handler for full cleanup/reset
+ */
+function onyx_command_ajax_full_cleanup() {
+    check_ajax_referer('mm_admin_action', 'nonce');
+
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error(array('message' => __('You do not have permission to perform this action.', 'onyx-command')));
+    }
+
+    $result = onyx_command_perform_full_cleanup();
+
+    if (is_wp_error($result)) {
+        wp_send_json_error(array('message' => $result->get_error_message()));
+    }
+
+    wp_send_json_success(array('message' => __('All Onyx Command data has been reset successfully.', 'onyx-command')));
+}
+
+/**
+ * Perform the full cleanup routine
+ *
+ * @return true|WP_Error
+ */
+function onyx_command_perform_full_cleanup() {
+    global $wpdb;
+
+    $tables_to_drop = array(
+        $wpdb->prefix . 'mm_modules',
+        $wpdb->prefix . 'mm_logs',
+        $wpdb->prefix . 'mm_statistics',
+        $wpdb->prefix . 'oc_checklists',
+        $wpdb->prefix . 'oc_checklist_progress'
+    );
+
+    $options_to_delete = array(
+        'oc_version',
+        'oc_installed',
+        'oc_button_bg_color',
+        'oc_button_text_color',
+        'oc_button_hover_bg_color',
+        'oc_button_hover_text_color',
+        'oc_button_border_radius',
+        'oc_button_padding_vertical',
+        'oc_button_padding_horizontal',
+        'oc_button_font_size',
+        'oc_button_font_weight',
+        'oc_button_text_transform',
+        'oc_button_font_family',
+        'oc_ignore_plugin_styling',
+        'oc_api_keys',
+        'oc_keep_settings_on_uninstall',
+        'mm_version',
+        'mm_installed'
+    );
+
+    try {
+        foreach ($options_to_delete as $option) {
+            delete_option($option);
+        }
+
+        // Remove any remaining prefixed options/transients
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE 'oc_%'");
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE 'mm_%'");
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_oc_%'");
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_oc_%'");
+
+        // Drop plugin tables
+        foreach ($tables_to_drop as $table) {
+            $wpdb->query("DROP TABLE IF EXISTS {$table}");
+        }
+
+        // Clear scheduled hooks
+        wp_clear_scheduled_hook('mm_daily_cleanup');
+        wp_clear_scheduled_hook('oc_daily_cleanup');
+
+        // Recreate a clean schema
+        if (function_exists('onyx_command_activate')) {
+            onyx_command_activate();
+        } elseif (class_exists('OC_Database')) {
+            OC_Database::get_instance()->create_tables();
+        }
+
+        if (class_exists('OC_Error_Logger')) {
+            $user = wp_get_current_user();
+            $username = $user && $user->exists() ? $user->user_login : 'system';
+            OC_Error_Logger::log('info', 'Full cleanup executed', 'Manual reset completed', array('user' => $username));
+        }
+    } catch (Throwable $e) {
+        return new WP_Error('cleanup_failed', $e->getMessage());
+    }
+
+    if (!empty($wpdb->last_error)) {
+        return new WP_Error('cleanup_failed', $wpdb->last_error);
+    }
+
+    return true;
+}
+
 /**
  * Include required files
  */
@@ -326,7 +427,8 @@ function onyx_command_include_files() {
         'class-ajax-handler.php',
         'class-statistics.php',
         'class-settings.php',
-        'class-admin-bar.php'
+        'class-admin-bar.php',
+        'class-recommendations.php'
     );
     
     foreach ($files as $file) {
@@ -356,6 +458,7 @@ function onyx_command_init() {
     try { if (class_exists('OC_Statistics')) OC_Statistics::get_instance(); } catch (Throwable $e) {}
     try { if (class_exists('OC_Settings')) OC_Settings::get_instance(); } catch (Throwable $e) {}
     try { if (class_exists('OC_Admin_Bar')) OC_Admin_Bar::get_instance(); } catch (Throwable $e) {}
+    try { if (class_exists('OC_Recommendations')) OC_Recommendations::get_instance(); } catch (Throwable $e) {}
     try { if (is_admin() && class_exists('OC_Ajax_Handler')) OC_Ajax_Handler::get_instance(); } catch (Throwable $e) {}
 }
 add_action('plugins_loaded', 'onyx_command_init', 1);
@@ -376,6 +479,7 @@ function onyx_command_admin_bar_menu($wp_admin_bar) {
     $wp_admin_bar->add_node(array('id' => 'oc-optimizer', 'parent' => 'onyx-command', 'title' => '⚡ Optimizer', 'href' => admin_url('admin.php?page=onyx-command-optimizer')));
     $wp_admin_bar->add_node(array('id' => 'oc-stats', 'parent' => 'onyx-command', 'title' => '📈 Statistics', 'href' => admin_url('admin.php?page=onyx-command-stats')));
     $wp_admin_bar->add_node(array('id' => 'oc-settings', 'parent' => 'onyx-command', 'title' => '⚙️ Settings', 'href' => admin_url('admin.php?page=onyx-command-settings')));
+    $wp_admin_bar->add_node(array('id' => 'oc-recommended', 'parent' => 'onyx-command', 'title' => '✨ Recommended Plugins', 'href' => admin_url('admin.php?page=onyx-command-recommended')));
 }
 add_action('admin_bar_menu', 'onyx_command_admin_bar_menu', 100);
 
@@ -390,6 +494,7 @@ function onyx_command_add_admin_menu() {
     add_submenu_page('onyx-command', 'Error Logs', 'Error Logs', 'manage_options', 'onyx-command-logs', 'onyx_command_render_logs');
     add_submenu_page('onyx-command', 'Optimizer', 'Optimizer', 'manage_options', 'onyx-command-optimizer', 'onyx_command_render_optimizer');
     add_submenu_page('onyx-command', 'Statistics', 'Statistics', 'manage_options', 'onyx-command-stats', 'onyx_command_render_statistics');
+    add_submenu_page('onyx-command', 'Recommended Plugins', 'Recommended Plugins', 'manage_options', 'onyx-command-recommended', 'onyx_command_render_recommended');
     add_submenu_page('onyx-command', 'Settings', 'Settings', 'manage_options', 'onyx-command-settings', 'onyx_command_render_settings');
 }
 add_action('admin_menu', 'onyx_command_add_admin_menu');
@@ -412,9 +517,12 @@ function onyx_command_enqueue_assets($hook) {
             'ajax_url' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('mm_admin_action'),
             'strings' => array(
-                'confirm_delete' => 'Are you sure you want to delete this module?',
-                'confirm_clear_logs' => 'Are you sure you want to clear all logs?',
-                'confirm_clean_db' => 'Are you sure you want to clean the database?',
+                'confirm_delete' => __('Are you sure you want to delete this module?', 'onyx-command'),
+                'confirm_clear_logs' => __('Are you sure you want to clear all logs?', 'onyx-command'),
+                'confirm_clean_db' => __('Are you sure you want to clean the database?', 'onyx-command'),
+                'confirm_full_cleanup' => __('This will remove all Onyx Command data and reset modules to their defaults. Continue?', 'onyx-command'),
+                'cleanup_processing' => __('Resetting...', 'onyx-command'),
+                'error_generic' => __('An unexpected error occurred. Please try again.', 'onyx-command'),
             )
         ));
     }
@@ -481,6 +589,39 @@ function onyx_command_render_statistics() {
         $performance = $stats_manager->generate_performance_report(30);
     }
     include OC_PLUGIN_DIR . 'templates/statistics.php';
+}
+
+function onyx_command_render_recommended() {
+    add_thickbox();
+    $recommendations = array();
+    $signals = array();
+    $media_counts = wp_count_attachments();
+    $media_total = 0;
+    if (is_object($media_counts)) {
+        foreach ((array) $media_counts as $count) {
+            $media_total += (int) $count;
+        }
+    }
+
+    $post_counts = wp_count_posts();
+    $page_counts = wp_count_posts('page');
+
+    $context = array(
+        'posts'      => isset($post_counts->publish) ? (int) $post_counts->publish : 0,
+        'pages'      => isset($page_counts->publish) ? (int) $page_counts->publish : 0,
+        'media'      => $media_total,
+        'comments'   => (int) get_comments(array('count' => true)),
+        'is_store'   => class_exists('WooCommerce'),
+        'multisite'  => is_multisite(),
+    );
+
+    if (class_exists('OC_Recommendations')) {
+        $service = OC_Recommendations::get_instance();
+        $recommendations = $service->get_recommendations();
+        $signals = $service->get_site_signals();
+    }
+
+    include OC_PLUGIN_DIR . 'templates/recommended.php';
 }
 
 function onyx_command_render_settings() {

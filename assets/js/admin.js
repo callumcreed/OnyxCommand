@@ -22,6 +22,7 @@
             
             // Cache and optimization
             $(document).on('click', '.oc-clear-cache, .oc-clear-cache-btn', this.clearCache);
+            $(document).on('click', '.oc-full-cleanup', this.fullCleanup);
             $(document).on('click', '.oc-clean-db-btn', this.cleanDatabase);
             $(document).on('click', '.oc-clean-logs-btn', this.cleanLogs);
             $(document).on('click', '.oc-apply-suggestion', this.applySuggestion);
@@ -508,6 +509,15 @@
         
         clearCache: function() {
             const $btn = $(this);
+            let $spinner = $btn.data('ocSpinner');
+            if (!$spinner || !$spinner.length) {
+                $spinner = $('<span class="oc-spinner" aria-hidden="true"></span>');
+                if ($btn.hasClass('button-hero')) {
+                    $spinner.addClass('oc-spinner--hero');
+                }
+                $spinner.insertAfter($btn);
+                $btn.data('ocSpinner', $spinner);
+            }
             
             $.ajax({
                 url: ocAdmin.ajax_url,
@@ -518,6 +528,7 @@
                 },
                 beforeSend: function() {
                     $btn.prop('disabled', true).text('Clearing...');
+                    $spinner.addClass('is-active');
                 },
                 success: function(response) {
                     if (response.success) {
@@ -531,6 +542,53 @@
                 },
                 complete: function() {
                     $btn.prop('disabled', false).text($btn.hasClass('oc-clear-cache-btn') ? 'Clear All Caches' : 'Clear Cache');
+                    if ($spinner && $spinner.length) {
+                        $spinner.removeClass('is-active');
+                    }
+                }
+            });
+        },
+
+        fullCleanup: function() {
+            const $btn = $(this);
+            const confirmMessage = $btn.data('confirm') || ocAdmin.strings.confirm_full_cleanup || 'This will remove all Onyx Command data. Continue?';
+            
+            if (!confirm(confirmMessage)) {
+                return;
+            }
+            
+            const originalText = $btn.data('original-text') || $btn.text();
+            if (!$btn.data('original-text')) {
+                $btn.data('original-text', originalText);
+            }
+            
+            $.ajax({
+                url: ocAdmin.ajax_url,
+                type: 'POST',
+                data: {
+                    action: 'oc_full_cleanup',
+                    nonce: ocAdmin.nonce
+                },
+                beforeSend: function() {
+                    $btn.prop('disabled', true).text(ocAdmin.strings.cleanup_processing || 'Resetting...');
+                },
+                success: function(response) {
+                    if (response && response.success) {
+                        const message = (response.data && response.data.message) || 'Onyx Command data has been reset.';
+                        MM.showNotice(message, 'success');
+                        setTimeout(function() {
+                            location.reload();
+                        }, 2000);
+                    } else {
+                        const errorMsg = (response && response.data && response.data.message) || ocAdmin.strings.error_generic || 'An unexpected error occurred.';
+                        MM.showNotice(errorMsg, 'error');
+                    }
+                },
+                error: function() {
+                    MM.showNotice(ocAdmin.strings.error_generic || 'An unexpected error occurred.', 'error');
+                },
+                complete: function() {
+                    $btn.prop('disabled', false).text($btn.data('original-text') || originalText);
                 }
             });
         },
