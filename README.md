@@ -1,6 +1,11 @@
 # OnyxCommand
 WIP WP Plugin
 
+NOTE! ---
+------------------------------
+This is all very stream of consciousness note-taking. Sorry if it's a lil confusing! 
+
+
 
 QA TESTING ---
 ------------------------------
